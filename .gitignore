@@ -3,6 +3,16 @@
 # dependencies
 node_modules/
 
+# Variables de entorno
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Configuración con API keys
+app.config.local.js
+
 # Expo
 .expo/
 dist/
@@ -29,9 +39,6 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
-
-# local env files
-.env*.local
 
 # typescript
 *.tsbuildinfo

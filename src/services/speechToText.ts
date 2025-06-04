@@ -1,90 +1,66 @@
 import * as FileSystem from 'expo-file-system';
-import { Audio } from 'expo-av';
+import config from '../config/config';
 
-let recording: Audio.Recording;
-
-export const startRecording = async (): Promise<string> => {
+export async function whisperToText(audioFilePath: string): Promise<string> {
     try {
-        await Audio.requestPermissionsAsync();
-        await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
+        console.log('Procesando archivo de audio:', audioFilePath);
+
+        // Obtener información del archivo
+        const fileInfo = await FileSystem.getInfoAsync(audioFilePath);
+        console.log('Info del archivo:', fileInfo);
+
+        if (!fileInfo.exists) {
+            throw new Error('El archivo de audio no existe');
+        }
+
+        // Crear FormData de manera compatible con Expo
+        const formData = new FormData();
+
+        // En Expo, formateamos el archivo de esta manera
+        formData.append('file', {
+            uri: audioFilePath,
+            type: 'audio/m4a',
+            name: 'audio.m4a',
+        } as any);
+
+        formData.append('model', 'whisper-1');
+        formData.append('language', 'de'); // Especificar alemán para mejor precisión
+
+        console.log('Enviando audio a OpenAI Whisper...');
+
+        const apiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.openaiApiKey}`,
+                // No incluir Content-Type, FormData lo establece automáticamente
+            },
+            body: formData,
         });
 
-        const recordingOptions = {
-            android: {
-                extension: '.m4a',
-                outputFormat: 2, // MPEG_4
-                audioEncoder: 3, // AAC
-                sampleRate: 44100,
-                numberOfChannels: 2,
-                bitRate: 128000,
-            },
-            ios: {
-                extension: '.caf',
-                audioQuality: 127, // AVAudioQuality.high = 0x7F
-                sampleRate: 44100,
-                numberOfChannels: 2,
-                bitRate: 128000,
-                linearPCMBitDepth: 16,
-                linearPCMIsBigEndian: false,
-                linearPCMIsFloat: false,
-            },
-            web: {
-                mimeType: 'audio/webm',
-                bitsPerSecond: 128000,
-            },
-        };
+        console.log('Status de respuesta:', apiResponse.status);
 
+        if (!apiResponse.ok) {
+            const errorText = await apiResponse.text();
+            console.error('Error de API OpenAI:', errorText);
+            throw new Error(`API Error: ${apiResponse.status} - ${errorText}`);
+        }
 
-        recording = new Audio.Recording();
-        await recording.prepareToRecordAsync(recordingOptions);
+        const data = await apiResponse.json();
+        console.log('Transcripción recibida:', data.text);
 
-        await recording.startAsync();
+        if (!data.text) {
+            throw new Error('No se recibió texto en la respuesta de Whisper');
+        }
 
-        return ''; // En este ejemplo no se retorna aún la URI
+        return data.text;
     } catch (error) {
-        console.error('Error al iniciar grabación:', error);
-        throw error;
+        console.error('Error detallado en whisperToText:', error);
+
+        // Proporcionar más información sobre el tipo de error
+        if ((error as Error).message.includes('Network request failed')) {
+            throw new Error('Error de conexión. Verifica tu conexión a internet y la API key.');
+        }
+
+        throw new Error(`Error al transcribir audio: ${(error as Error).message}`);
     }
-};
-
-export const stopRecording = async (uri?: string) => {
-    try {
-        await recording.stopAndUnloadAsync();
-        const uriFinal = recording.getURI();
-
-        const base64Audio = await FileSystem.readAsStringAsync(uriFinal!, {
-            encoding: FileSystem.EncodingType.Base64,
-        });
-
-        const transcript = await whisperToText(base64Audio);
-        return { transcript };
-    } catch (error) {
-        console.error('Error al detener grabación:', error);
-        throw error;
-    }
-};
-
-const whisperToText = async (base64Audio: string): Promise<string> => {
-    const formData = new FormData();
-
-    formData.append('file', {
-        uri: `data:audio/webm;base64,${base64Audio}`,
-        name: 'audio.webm',
-        type: 'audio/webm',
-    } as any);
-    formData.append('model', 'whisper-1');
-    formData.append('language', 'de');
-
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer YOUR_OPENAI_API_KEY`,
-        },
-        body: formData,
-    });
-
-    const data = await response.json();
-    return data.text || 'Error en transcripción';
-};
+}
